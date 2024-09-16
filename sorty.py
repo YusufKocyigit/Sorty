@@ -54,31 +54,81 @@ def format_time(seconds):
     m = math.floor((seconds % 3600) / 60)
     s = math.floor(seconds % 60)
     return f"{h:02}:{m:02}:{s:02}"
+def resize_to_max_dimension(original_width, original_height, max_width, max_height):
+    """Resize keeping the original aspect ratio within max width and height."""
+    aspect_ratio = original_width / original_height
+    if original_width > original_height:
+        # Landscape mode, width is the limiting factor
+        new_width = min(original_width, max_width)
+        new_height = new_width / aspect_ratio
+    else:
+        # Portrait mode, height is the limiting factor
+        new_height = min(original_height, max_height)
+        new_width = new_height * aspect_ratio
+    
+    # Ensure it doesn't exceed the max dimensions
+    if new_width > max_width:
+        new_width = max_width
+        new_height = new_width / aspect_ratio
+    if new_height > max_height:
+        new_height = max_height
+        new_width = new_height * aspect_ratio
+
+    return int(new_width), int(new_height)
+
+def add_black_bar_and_text(frame, window_width, window_height, commands):
+    """Add a black bar under the frame and display commands."""
+    bar_height = 100  # Increased height of the black bar for text
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5  # Reduced font scale for smaller text
+    font_thickness = 1  # Reduced thickness for smaller text
+    text_color = (255, 255, 255)  # White text
+    text_bg_color = (0, 0, 0)  # Black background
+
+    # Create a new image with extra space for the black bar
+    frame_with_bar = cv2.copyMakeBorder(
+        frame, 0, bar_height, 0, 0, cv2.BORDER_CONSTANT, value=text_bg_color)
+
+    # Add text to the black bar
+    for i, (text, position) in enumerate(commands):
+        text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+        text_x = 10  # Left padding for text
+        text_y = window_height + 30 + i * 25  # Adjusted for larger black bar
+        cv2.putText(frame_with_bar, text, (text_x, text_y), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
+
+    return frame_with_bar
 
 def play_video(video_path, start_percentage=0):
-    """Plays the video using OpenCV in a window that's a quarter of the screen size, positioned at the top-left corner."""
+    """Plays the video while keeping the original aspect ratio, fitting within 1/2.5 of the screen size."""
     cap = cv2.VideoCapture(video_path)
+    
+    # Get the original width and height of the video
+    original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Screen size and the max size for the video window (1/2.5 of the screen size)
+    screen_width = 1920  # Adjust this for your screen width
+    screen_height = 1080  # Adjust this for your screen height
+    max_width = screen_width // 2.5  # New max width (1/2.5 of the screen width)
+    max_height = screen_height // 2.5  # New max height (1/2.5 of the screen height)
+    
+    # Resize the video to maintain aspect ratio within 1/2.5 of the screen
+    window_width, window_height = resize_to_max_dimension(original_width, original_height, max_width, max_height)
     
     # Calculate the frame to start from
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     start_frame = int(total_frames * (start_percentage / 100.0))
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-    # Resize parameters for the video window (a quarter of the screen size)
-    screen_width = 1920  # Adjust this for your screen width
-    screen_height = 1080  # Adjust this for your screen height
-    window_width = screen_width // 4  # Width of the window (one quarter of the screen width)
-    window_height = screen_height // 4  # Height of the window (one quarter of the screen height)
-    
-    # Move the window to the top-left corner of the screen
-    corner_x = 0
-    corner_y = 0
+    # Calculate the position for centering the window at the top
+    corner_x = (screen_width - window_width) // 3
+    corner_y = 0  # Top of the screen
 
     window_name = f"Playing (Muted): {os.path.basename(video_path)}"
     
     # Set up window properties
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, window_width, window_height)
+    cv2.resizeWindow(window_name, window_width, window_height + 100)  # Include space for the black bar
     cv2.moveWindow(window_name, corner_x, corner_y)
 
     while cap.isOpened():
@@ -88,40 +138,21 @@ def play_video(video_path, start_percentage=0):
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             continue
 
-        # Resize the frame to fit the window size
+        # Resize the frame to fit the window size while keeping the aspect ratio
         frame_resized = cv2.resize(frame, (window_width, window_height))
 
-        # Create a copy of the frame for displaying text
-        frame_with_text = frame_resized.copy()
-
-        # Set text properties
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.7
-        font_thickness = 2
-        text_color = (255, 255, 255)  # White
-        text_bg_color = (0, 0, 0)  # Black background for text
-
-        # Define text size and position
-        text_options = [
-            ("Press 'a' to keep", (10, window_height - 80)),
-            ("Press 'z' to delete", (10, window_height - 50)),
-            ("Press 'e' to skip 10%", (10, window_height - 20))
+        # Define the commands to show
+        commands = [
+            ("Press 'A' to keep", (10, window_height + 25)),
+            ("Press 'Z' to delete", (10, window_height + 50)),
+            ("Press 'E' to skip 10%", (10, window_height + 75))
         ]
 
-        for text, position in text_options:
-            # Get the text size
-            text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
-            text_width, text_height = text_size
-
-            # Draw a filled rectangle for the text background
-            cv2.rectangle(frame_with_text, (position[0], position[1] - text_height - 10),
-                          (position[0] + text_width + 10, position[1] + 10), text_bg_color, cv2.FILLED)
-            
-            # Put the text on the frame
-            cv2.putText(frame_with_text, text, position, font, font_scale, text_color, font_thickness, cv2.LINE_AA)
+        # Add the black bar with text commands
+        frame_with_bar = add_black_bar_and_text(frame_resized, window_width, window_height, commands)
 
         # Display the frame with command options
-        cv2.imshow(window_name, frame_with_text)
+        cv2.imshow(window_name, frame_with_bar)
         
         # Check for user input
         key = cv2.waitKey(25) & 0xFF
@@ -154,35 +185,50 @@ def play_video(video_path, start_percentage=0):
     cv2.destroyAllWindows()
 
 def show_image(image_path):
-    """Displays the image using OpenCV in a small window at the top-middle of the screen."""
+    """Displays the image while keeping the original aspect ratio, fitting within 1/2.5 of the screen size."""
     img = cv2.imread(image_path)
+    original_height, original_width = img.shape[:2]
     
-    # Resize parameters for the image window
-    window_name = f"Viewing: {os.path.basename(image_path)}"
-    window_width = 320  # Width of the resized image window
-    window_height = 240  # Height of the resized image window
-    
-    # Move the window to the top-middle of the screen
+    # Screen size and the max size for the image window (1/2.5 of the screen size)
     screen_width = 1920  # Adjust this for your screen width
     screen_height = 1080  # Adjust this for your screen height
-    corner_x = (screen_width - window_width) // 2  # Center horizontally
-    corner_y = 10  # 10px padding from the top
+    max_width = screen_width // 2.5  # New max width (1/2.5 of the screen width)
+    max_height = screen_height // 2.5  # New max height (1/2.5 of the screen height)
+    
+    # Resize the image to maintain aspect ratio within 1/2.5 of the screen
+    window_width, window_height = resize_to_max_dimension(original_width, original_height, max_width, max_height)
+
+    # Calculate the position for centering the window at the top
+    corner_x = (screen_width - window_width) // 3
+    corner_y = 0  # Top of the screen
 
     # Resize the image to fit the window size
     resized_img = cv2.resize(img, (window_width, window_height))
 
+    # Define the commands to show
+    commands = [
+        ("Press 'A' to keep", (10, window_height + 25)),
+        ("Press 'Z' to delete", (10, window_height + 50))
+    ]
+
+    # Add the black bar with text commands
+    img_with_bar = add_black_bar_and_text(resized_img, window_width, window_height, commands)
+
     # Set up window properties
+    window_name = f"Viewing: {os.path.basename(image_path)}"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, window_width, window_height + 80)  # Include space for the black bar
     cv2.moveWindow(window_name, corner_x, corner_y)
 
-    # Show the resized image
-    cv2.imshow(window_name, resized_img)
+    # Show the resized image with the black bar and commands
+    cv2.imshow(window_name, img_with_bar)
     
     # Wait for the user to press 'q' to close the image window
     key = cv2.waitKey(0) & 0xFF
     if key == ord('q'):
         cv2.destroyAllWindows()
         sys.exit()  # Exit the program
+
 
 def review_files(folder_to_review, start_percentage):
     """Reviews all video files in a folder and its subfolders."""
