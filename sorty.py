@@ -7,11 +7,28 @@ import math
 import sys
 from datetime import datetime
 
-# Configurations
+# Configurable Settings
 VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv']
 IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
-DELETE_FOLDER = 'deleted_files'  # Default, will be updated
+DELETE_FOLDER = 'deleted_files'  # Default, will be updated by the user
 LOG_FILE = 'review_log.txt'
+
+# Video/Screen Settings
+SCREEN_WIDTH = 1920  # Screen width for resizing videos and images
+SCREEN_HEIGHT = 1080  # Screen height for resizing videos and images
+MAX_WINDOW_RATIO = 2.5  # Window size will be SCREEN_WIDTH / this value
+
+# Default Video Settings
+MUTE_VIDEO = True  # True = Video is muted by default, False = Video plays with sound
+DEFAULT_VIDEO_START_PERCENTAGE = 10  # Start video at this percentage (0-100)
+SKIP_PERCENTAGE = 10  # Skip video by this percentage when 'E' is pressed
+
+# Black Bar and Text Settings
+BAR_HEIGHT = 100  # Height of the black bar at the bottom
+FONT_SCALE = 0.5  # Scale of the font for commands
+FONT_THICKNESS = 1  # Thickness of the font for commands
+TEXT_COLOR = (255, 255, 255)  # White text color
+TEXT_BG_COLOR = (0, 0, 0)  # Black background for the text
 
 def log_action(file_path, action):
     """Logs the user's action (keep/delete) on a file."""
@@ -73,35 +90,26 @@ def resize_to_max_dimension(original_width, original_height, max_width, max_heig
 
 def add_black_bar_and_text(frame, window_width, window_height, commands):
     """Add a black bar under the frame and display commands."""    
-    bar_height = 100  # Increased height of the black bar for text
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.5  # Reduced font scale for smaller text
-    font_thickness = 1  # Reduced thickness for smaller text
-    text_color = (255, 255, 255)  # White text
-    text_bg_color = (0, 0, 0)  # Black background
-
     frame_with_bar = cv2.copyMakeBorder(
-        frame, 0, bar_height, 0, 0, cv2.BORDER_CONSTANT, value=text_bg_color)
+        frame, 0, BAR_HEIGHT, 0, 0, cv2.BORDER_CONSTANT, value=TEXT_BG_COLOR)
 
     for i, (text, position) in enumerate(commands):
-        text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+        text_size, _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, FONT_THICKNESS)
         text_x = 10
         text_y = window_height + 30 + i * 25
-        cv2.putText(frame_with_bar, text, (text_x, text_y), font, font_scale, text_color, font_thickness, cv2.LINE_AA)
+        cv2.putText(frame_with_bar, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
 
     return frame_with_bar
 
-def play_video(video_path, start_percentage=0):
-    """Plays the video while keeping the original aspect ratio, fitting within 1/2.5 of the screen size."""    
+def play_video(video_path, start_percentage=DEFAULT_VIDEO_START_PERCENTAGE):
+    """Plays the video while keeping the original aspect ratio, fitting within screen constraints."""    
     cap = cv2.VideoCapture(video_path)
     
     original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
-    screen_width = 1920  # Adjust for your screen width
-    screen_height = 1080  # Adjust for your screen height
-    max_width = screen_width // 2
-    max_height = screen_height // 2
+    max_width = SCREEN_WIDTH // int(MAX_WINDOW_RATIO)
+    max_height = SCREEN_HEIGHT // int(MAX_WINDOW_RATIO)
     
     window_width, window_height = resize_to_max_dimension(original_width, original_height, max_width, max_height)
     
@@ -109,13 +117,13 @@ def play_video(video_path, start_percentage=0):
     start_frame = int(total_frames * (start_percentage / 100.0))
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-    corner_x = (screen_width - window_width) // 3
+    corner_x = (SCREEN_WIDTH - window_width) // 3
     corner_y = 0
 
-    window_name = f"Playing (Muted): {os.path.basename(video_path)}"
+    window_name = f"Playing {'(Muted)' if MUTE_VIDEO else '(Sound)'}: {os.path.basename(video_path)}"
     
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, window_width, window_height + 100)
+    cv2.resizeWindow(window_name, window_width, window_height + BAR_HEIGHT)
     cv2.moveWindow(window_name, corner_x, corner_y)
 
     while cap.isOpened():
@@ -129,7 +137,7 @@ def play_video(video_path, start_percentage=0):
         commands = [
             ("Press 'A' to keep", (10, window_height + 25)),
             ("Press 'Z' to delete", (10, window_height + 50)),
-            ("Press 'E' to skip 10%", (10, window_height + 75))
+            (f"Press 'E' to skip {SKIP_PERCENTAGE}%", (10, window_height + 75))
         ]
 
         frame_with_bar = add_black_bar_and_text(frame_resized, window_width, window_height, commands)
@@ -153,10 +161,10 @@ def play_video(video_path, start_percentage=0):
             cv2.destroyAllWindows()
             return 'Deleted'
         elif key == ord('e'):
-            print("Skipping 10% more...")
+            print(f"Skipping {SKIP_PERCENTAGE}% more...")
             current_pos = cap.get(cv2.CAP_PROP_POS_FRAMES)
             total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-            skip_frames = int(total_frames * 0.1)
+            skip_frames = int(total_frames * (SKIP_PERCENTAGE / 100.0))
             new_pos = min(current_pos + skip_frames, total_frames - 1)
             cap.set(cv2.CAP_PROP_POS_FRAMES, new_pos)
 
@@ -164,18 +172,16 @@ def play_video(video_path, start_percentage=0):
     cv2.destroyAllWindows()
 
 def show_image(image_path):
-    """Displays the image while keeping the original aspect ratio, fitting within 1/2.5 of the screen size."""    
+    """Displays the image while keeping the original aspect ratio, fitting within screen constraints."""    
     img = cv2.imread(image_path)
     original_height, original_width = img.shape[:2]
     
-    screen_width = 1920  # Adjust for your screen width
-    screen_height = 1080  # Adjust for your screen height
-    max_width = screen_width // 2
-    max_height = screen_height // 2
+    max_width = SCREEN_WIDTH // int(MAX_WINDOW_RATIO)
+    max_height = SCREEN_HEIGHT // int(MAX_WINDOW_RATIO)
     
     window_width, window_height = resize_to_max_dimension(original_width, original_height, max_width, max_height)
 
-    corner_x = (screen_width - window_width) // 3
+    corner_x = (SCREEN_WIDTH - window_width) // 3
     corner_y = 0
 
     resized_img = cv2.resize(img, (window_width, window_height))
@@ -189,7 +195,7 @@ def show_image(image_path):
 
     window_name = f"Viewing: {os.path.basename(image_path)}"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, window_width, window_height + 80)
+    cv2.resizeWindow(window_name, window_width, window_height + BAR_HEIGHT)
     cv2.moveWindow(window_name, corner_x, corner_y)
 
     cv2.imshow(window_name, img_with_bar)
@@ -250,15 +256,14 @@ if __name__ == "__main__":
         print("No delete folder selected. Exiting...")
         sys.exit()
     
-    default_percentage = 10
-    start_percentage_str = input(f"Enter the percentage (0-100) of video length to start from [default: {default_percentage}%]: ").strip()
+    start_percentage_str = input(f"Enter the percentage (0-100) of video length to start from [default: {DEFAULT_VIDEO_START_PERCENTAGE}%]: ").strip()
     
     try:
-        start_percentage = int(start_percentage_str) if start_percentage_str else default_percentage
+        start_percentage = int(start_percentage_str) if start_percentage_str else DEFAULT_VIDEO_START_PERCENTAGE
         if not (0 <= start_percentage <= 100):
             raise ValueError("Percentage out of range.")
     except ValueError as e:
-        print(f"Invalid input: {e}. Using default percentage {default_percentage}.")
-        start_percentage = default_percentage
+        print(f"Invalid input: {e}. Using default percentage {DEFAULT_VIDEO_START_PERCENTAGE}.")
+        start_percentage = DEFAULT_VIDEO_START_PERCENTAGE
     
     review_files(folder_to_review, start_percentage)
